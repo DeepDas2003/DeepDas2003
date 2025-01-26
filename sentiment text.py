@@ -1,0 +1,97 @@
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score
+import re
+import nltk
+import pandas as pd
+import string
+from nltk.corpus import stopwords
+import numpy as np
+nltk.download('stopwords')
+stopword = set(stopwords.words('english'))
+df = pd.read_csv("twitter_training.csv")
+print(df.head())
+df['Positive'] = df['Positive'].map({"Positive": 1, "Neutral": 0, "Negative": -1, "Irrelevant": -2})
+def clean(text):
+    text = str(text).lower()
+    text = re.sub(r'\[.*?\]', ' ', text)  
+    text = re.sub(r'https?://\S+|www\.\S+', ' ', text)  
+    text = re.sub(r'<.*?>', ' ', text) 
+    text = re.sub(r'[%s]' % re.escape(string.punctuation), ' ', text)  
+    text = re.sub(r'\n', ' ', text)  
+    text = re.sub(r'\w*\d\w*', ' ', text)  
+    text = [word for word in text.split() if word not in stopword]  
+    text = " ".join(text)  #
+    return text
+df["im getting on borderlands and i will murder you all ,"]=df['im getting on borderlands and i will murder you all ,'].apply(clean)
+df.head()
+df['Positive'] = df['Positive'].fillna(-2) 
+
+df.dropna(subset=['Positive'], inplace=True) 
+x = np.array(df['im getting on borderlands and i will murder you all ,'])
+y = np.array(df['Positive'])
+
+cv = CountVectorizer()
+x = cv.fit_transform(x)
+
+
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.33, random_state=42)
+x_train, x_validation, y_train, y_validation = train_test_split(x_train, y_train, test_size=0.33, random_state=42)
+
+
+clf = DecisionTreeClassifier()
+clf.fit(x_train, y_train)
+
+y_train_pred = clf.predict(x_train)
+y_validation_pred = clf.predict(x_validation)
+
+train_accuracy = accuracy_score(y_train, y_train_pred)
+validation_accuracy = accuracy_score(y_validation, y_validation_pred)
+
+print(f"Training Accuracy: {train_accuracy}")
+print(f"Validation Accuracy: {validation_accuracy}")
+import speech_recognition as sr
+from langdetect import detect
+from googletrans import Translator
+
+# Initialize recognizer and translator
+recognizer = sr.Recognizer()
+translator = Translator()
+
+# Access microphone to capture audio
+with sr.Microphone() as source:
+    print("Say something...")
+    recognizer.adjust_for_ambient_noise(source)  # Adjust for ambient noise
+    audio = recognizer.listen(source)  # Capture the audio
+
+# Convert speech to text
+try:
+    print("Recognizing...")
+    text = recognizer.recognize_google(audio)  # Convert audio to text using Google Web Speech API
+    print(f"Transcribed Text: {text}")
+
+    # Detect the language of the transcribed text
+    language = detect(text)
+    print(f"Detected Language: {language}")
+
+    # If the language is not English, translate it to English
+    if language != 'en':
+        print("Translating to English...")
+        translated_text = translator.translate(text, src=language, dest='en').text
+        print(f"Translated Text: {translated_text}")
+    else:
+        print("The text is already in English.")
+
+except sr.UnknownValueError:
+    print("Sorry, I could not understand the audio.")
+except sr.RequestError:
+    print("Could not request results from the speech recognition service.")
+df=cv.transform([translated_text]).toarray()
+prediction=clf.predict(df)
+label_mapping = {1: "Positive", 0: "Neutral", -1: "Negative",-2:"Irrevalent"}
+
+# Convert the numeric prediction to textual label
+predicted_label = label_mapping[prediction[0]]
+
+print(f"The predicted sentiment is: {predicted_label}")
