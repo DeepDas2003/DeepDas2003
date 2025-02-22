@@ -41,7 +41,7 @@ def recover_image(img, transmission, atmospheric_light, t_min=0.06):
     return np.clip(dehazed, 0, 255).astype(np.uint8)
 
 
-img = cv2.imread("fog3.png")
+img = cv2.imread(input("enter the path of image"))
 img = cv2.resize(img, (600, 400))
 
 
