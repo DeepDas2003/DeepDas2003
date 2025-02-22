@@ -1,0 +1,79 @@
+import numpy as np
+import cv2
+import torch  # For YOLOv5 or YOLOv8
+
+# Load YOLOv8 Model
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
+from matplotlib import pyplot as plt
+def dark_channel(img, window_size=25):
+ 
+    min_channel = np.min(img, axis=2)  
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (window_size, window_size))
+    dark_channel_img = cv2.erode(min_channel, kernel)
+    return dark_channel_img
+
+def estimate_atmospheric_light(img, dark_channel_img):
+ 
+    num_pixels = img.shape[0] * img.shape[1]
+    num_brightest = int(max(num_pixels * 0.001, 1))
+    dark_vec = dark_channel_img.ravel()
+    img_vec = img.reshape(num_pixels, 3)
+
+    indices = np.argsort(dark_vec)[-num_brightest:] 
+    atmospheric_light = np.mean(img_vec[indices], axis=0)
+    return atmospheric_light
+
+def estimate_transmission(img, atmospheric_light, omega=0.97, window_size=25):
+    norm_img = img / atmospheric_light  
+    transmission = 1 - omega * dark_channel(norm_img, window_size) 
+    return transmission
+
+def refine_transmission(img, transmission):
+    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0  
+    transmission = np.float32(transmission) 
+    
+    refined_transmission = cv2.ximgproc.guidedFilter(gray_img, transmission, radius=50, eps=1e-4)
+    return refined_transmission
+
+def recover_image(img, transmission, atmospheric_light, t_min=0.06):
+    transmission = np.maximum(transmission, t_min)[:, :, np.newaxis]  
+    dehazed = (img - atmospheric_light) / transmission + atmospheric_light  
+    return np.clip(dehazed, 0, 255).astype(np.uint8)
+
+
+img = cv2.imread("fog3.png")
+img = cv2.resize(img, (600, 400))
+
+
+dark_channel_img = dark_channel(img)
+
+A = estimate_atmospheric_light(img, dark_channel_img)
+transmission = estimate_transmission(img, A)
+transmission_refined = refine_transmission(img, transmission)
+dehazed_img = recover_image(img, transmission_refined, A)
+def apply_histogram_equalization(img):
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB) 
+    l, a, b = cv2.split(lab) 
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    l_eq = clahe.apply(l)
+    lab_eq = cv2.merge((l_eq, a, b))
+    enhanced_img = cv2.cvtColor(lab_eq, cv2.COLOR_LAB2BGR)  
+    return enhanced_img
+enhanced_dehazed_img = apply_histogram_equalization(dehazed_img)
+cv2.imshow("Dehazed Image with CLAHE", enhanced_dehazed_img)
+def detect_objects(image):
+    results = model(image) 
+    detections = results.pandas().xyxy[0]  
+    for _, row in detections.iterrows():
+        x1, y1, x2, y2, conf, cls = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax']), row['confidence'], row['name']
+        label = f"{cls} ({conf:.2f})"
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    return image
+detected_image=detect_objects(enhanced_dehazed_img)
+cv2.imshow("Object Detection on Dehazed Image", detected_image)
+cv2.imshow("object Detection on nrml image",detect_objects(img))
+key = cv2.waitKey(0)
+if key == ord('q'):
+    cv2.destroyAllWindows()
